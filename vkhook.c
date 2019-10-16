@@ -16,6 +16,7 @@
 
 #include "capture.h"
 #include "offscreen_swapchain.h"
+#include "glwindow.h"
 
 #define LIBVULKAN_SONAME	"libvulkan.so.1"
 #define SKIP_MESSAGE_TIMES	(60)
@@ -72,7 +73,7 @@ static struct capture_context* capture = NULL;
 static VkImage swapchain_images[3] = {0};
 static int swapchain_index = 0;
 static int nr_swapchain_images = 0;
-
+static struct glwindow* glwindow = NULL;
 
 /* libvulkan functions */
 
@@ -144,6 +145,9 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCre
 	if(!vulkan)
 		vulkan = libvulkan_functions_init();
 
+	if(!glwindow)
+		glwindow = glwindow_create();
+
 	prompt_hook();
 
 	if(use_offscreen_swapchain)
@@ -159,7 +163,7 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAlloca
 {
 	prompt_hook();
 	vulkan->vkDestroyInstance(instance, pAllocator);
-
+	glwindow_destroy(glwindow);
 	libvulkan_functions_deinit(vulkan);
 	vulkan = NULL;
 
@@ -452,6 +456,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentI
 	counter %= SKIP_MESSAGE_TIMES;
 
 	capture_context_capture(capture, swapchain_images[swapchain_index]);
+
+	glwindow_run(glwindow);
 
 	if(use_offscreen_swapchain)
 	{
