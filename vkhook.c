@@ -14,6 +14,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include "capture.h"
 
 #define LIBVULKAN_SONAME	"libvulkan.so.1"
 #define SKIP_MESSAGE_TIMES	(60)
@@ -64,7 +65,13 @@ struct libvulkan_functions
 
 
 static struct libvulkan_functions* vulkan = NULL;
+static struct capture_context* capture = NULL;
+static VkImage swapchain_images[3] = {0};
+static int swapchain_index = 0;
+static int nr_swapchain_images = 0;
 
+
+/* libvulkan functions */
 
 #define load_symbol(func)	vulkan->func = dlsym(vulkan->handle, #func)
 
@@ -147,14 +154,28 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAlloca
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDevice* pDevice)
 {
+	VkResult result = VK_SUCCESS;
+
 	prompt_hook();
-	return vulkan->vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+	result = vulkan->vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+
+	if(!capture)
+		capture = capture_context_init(physicalDevice, *pDevice, pCreateInfo->pQueueCreateInfos->queueFamilyIndex);
+
+	return result;
 }
 
 
 VKAPI_ATTR void VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator)
 {
 	prompt_hook();
+
+	if(capture)
+	{
+		capture_context_deinit(capture);
+		capture = NULL;
+	}
+
 	vulkan->vkDestroyDevice(device, pAllocator);
 }
 
@@ -242,6 +263,9 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceSurfacePresentModesKHR(VkPhysi
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks*pAllocator, VkSwapchainKHR* pSwapchain)
 {
 	prompt_hook();
+
+	capture_context_init_image(capture, pCreateInfo->imageFormat, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
+
 	return vulkan->vkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
 }
 
@@ -249,19 +273,34 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwa
 VKAPI_ATTR void VKAPI_CALL vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks* pAllocator)
 {
 	prompt_hook();
+
+	capture_context_destroy_image(capture);
+
 	vulkan->vkDestroySwapchainKHR(device, swapchain, pAllocator);
 }
 
 
 VKAPI_ATTR VkResult VKAPI_CALL vkGetSwapchainImagesKHR(VkDevice device, VkSwapchainKHR swapchain, uint32_t* pSwapchainImageCount, VkImage* pSwapchainImages)
 {
+	VkResult result = VK_SUCCESS;
+
 	prompt_hook();
-	return vulkan->vkGetSwapchainImagesKHR(device, swapchain, pSwapchainImageCount, pSwapchainImages);
+
+	result = vulkan->vkGetSwapchainImagesKHR(device, swapchain, pSwapchainImageCount, pSwapchainImages);
+
+	if(pSwapchainImages)
+	{
+		nr_swapchain_images = *pSwapchainImageCount;
+		memcpy(&swapchain_images, pSwapchainImages, sizeof(VkImage) * nr_swapchain_images);
+	}
+
+	return result;
 }
 
 
 VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
 {
+	VkResult result = VK_SUCCESS;
 	static int counter = 0;
 
 	if(counter == 0)
@@ -270,7 +309,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchai
 	++counter;
 	counter %= SKIP_MESSAGE_TIMES;
 
-	return vulkan->vkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
+	result = vulkan->vkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
+
+	swapchain_index = *pImageIndex;
+
+	return result;
 }
 
 
@@ -283,6 +326,9 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentI
 
 	++counter;
 	counter %= SKIP_MESSAGE_TIMES;
+
+	capture_context_capture(capture, swapchain_images[swapchain_index]);
+	capture_context_read_pixles(capture, NULL);
 
 	return vulkan->vkQueuePresentKHR(queue, pPresentInfo);
 }

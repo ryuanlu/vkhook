@@ -4,7 +4,7 @@ include build.mk
 .ONESHELL:
 
 VKHOOK_LIBRARY:=vkhook.so
-VKHOOK_SOURCES:=vkhook.c
+VKHOOK_SOURCES:=vkhook.c capture.c
 
 DEBUG_FLAGS:=-g
 
