@@ -268,3 +268,23 @@ void capture_context_read_pixles(struct capture_context* capture_context, char* 
 
 	vkUnmapMemory(capture_context->device, capture_context->memory);
 }
+
+
+const char* capture_context_map_image(struct capture_context* capture_context)
+{
+	const char* ptr = NULL;
+	vkMapMemory(capture_context->device, capture_context->memory, 0, VK_WHOLE_SIZE, 0, (void**)&ptr);
+	return ptr;
+}
+
+
+void capture_context_unmap_image(struct capture_context* capture_context)
+{
+	vkUnmapMemory(capture_context->device, capture_context->memory);
+}
+
+
+VkImage	capture_context_get_vkimage(struct capture_context* capture_context)
+{
+	return capture_context->image;
+}
