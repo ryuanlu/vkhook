@@ -69,11 +69,11 @@ struct libvulkan_functions
 static int use_offscreen_swapchain = CONFIG_USE_OFFSCREEN_SWAPCHAIN;
 
 static struct libvulkan_functions* vulkan = NULL;
-static struct capture_context* capture = NULL;
+static capture_context* capture = NULL;
 static VkImage swapchain_images[3] = {0};
 static int swapchain_index = 0;
 static int nr_swapchain_images = 0;
-static struct glwindow* glwindow = NULL;
+static glwindow* gl = NULL;
 
 /* libvulkan functions */
 
@@ -145,8 +145,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCre
 	if(!vulkan)
 		vulkan = libvulkan_functions_init();
 
-	if(!glwindow)
-		glwindow = glwindow_create();
+	if(!gl)
+		gl = glwindow_create();
 
 	prompt_hook();
 
@@ -163,7 +163,7 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAlloca
 {
 	prompt_hook();
 	vulkan->vkDestroyInstance(instance, pAllocator);
-	glwindow_destroy(glwindow);
+	glwindow_destroy(gl);
 	libvulkan_functions_deinit(vulkan);
 	vulkan = NULL;
 
@@ -366,6 +366,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwa
 	prompt_hook();
 
 	capture_context_init_image(capture, pCreateInfo->imageFormat, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
+	glwindow_set_fbo_size(gl, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
+
 	if(use_offscreen_swapchain)
 	{
 		*pSwapchain = (VkSwapchainKHR)offscreen_swapchain_create(capture_context_get_physical_device(capture), device, pCreateInfo->minImageCount, VK_FORMAT_R8G8B8A8_UNORM, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
@@ -447,6 +449,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchai
 
 VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
+	const char* pixels = NULL;
 	static int counter = 0;
 
 	if(counter == 0)
@@ -456,8 +459,15 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentI
 	counter %= SKIP_MESSAGE_TIMES;
 
 	capture_context_capture(capture, swapchain_images[swapchain_index]);
+	// capture_context_read_pixles(capture, NULL);
 
-	glwindow_run(glwindow);
+#ifndef USE_GL_DRAW_VKIMAGE_NV
+	pixels = capture_context_map_image(capture);
+	glwindow_blit(gl, pixels);
+	capture_context_unmap_image(capture);
+#else
+	glwindow_vkimage_blit(gl, capture_context_get_vkimage(capture));
+#endif
 
 	if(use_offscreen_swapchain)
 	{
