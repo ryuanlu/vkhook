@@ -139,7 +139,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCre
 {
 	char* env_vhook_use_offscreen_swapchain = getenv("VKHOOK_USE_OFFSCREEN_SWAPCHAIN");
 
-	use_offscreen_swapchain = env_vhook_use_offscreen_swapchain ? !strcmp("1", env_vhook_use_offscreen_swapchain) : 0;
+	use_offscreen_swapchain = env_vhook_use_offscreen_swapchain ? !strcmp("1", env_vhook_use_offscreen_swapchain) : use_offscreen_swapchain;
 
 	if(!vulkan)
 		vulkan = libvulkan_functions_init();
