@@ -15,6 +15,7 @@
 #include <vulkan/vulkan.h>
 
 #include "capture.h"
+#include "offscreen_swapchain.h"
 
 #define LIBVULKAN_SONAME	"libvulkan.so.1"
 #define SKIP_MESSAGE_TIMES	(60)
@@ -60,9 +61,11 @@ struct libvulkan_functions
 
 	PFN_vkAcquireNextImageKHR	vkAcquireNextImageKHR;
 	PFN_vkQueuePresentKHR		vkQueuePresentKHR;
+	PFN_vkQueueSubmit		vkQueueSubmit;
 
 };
 
+static int use_offscreen_swapchain = CONFIG_USE_OFFSCREEN_SWAPCHAIN;
 
 static struct libvulkan_functions* vulkan = NULL;
 static struct capture_context* capture = NULL;
@@ -113,6 +116,8 @@ struct libvulkan_functions* libvulkan_functions_init(void)
 	load_symbol(vkAcquireNextImageKHR);
 	load_symbol(vkQueuePresentKHR);
 
+	load_symbol(vkQueueSubmit);
+
 	prompt("");
 	return vulkan;
 }
@@ -132,10 +137,20 @@ void libvulkan_functions_deinit(struct libvulkan_functions* vulkan)
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance)
 {
+	char* env_vhook_use_offscreen_swapchain = getenv("VKHOOK_USE_OFFSCREEN_SWAPCHAIN");
+
+	use_offscreen_swapchain = env_vhook_use_offscreen_swapchain ? !strcmp("1", env_vhook_use_offscreen_swapchain) : 0;
+
 	if(!vulkan)
 		vulkan = libvulkan_functions_init();
 
 	prompt_hook();
+
+	if(use_offscreen_swapchain)
+	{
+		unsetenv("DISPLAY");
+	}
+
 	return vulkan->vkCreateInstance(pCreateInfo, pAllocator, pInstance);
 }
 
@@ -198,14 +213,29 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vkGetPhysicalDeviceXlibPresentationSupportKHR(VkP
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateXcbSurfaceKHR(VkInstance instance, const VkXcbSurfaceCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface)
 {
 	prompt_hook();
-	return vulkan->vkCreateXcbSurfaceKHR(instance, pCreateInfo, pAllocator, pSurface);
+
+	if(use_offscreen_swapchain)
+	{
+		*pSurface = (VkSurfaceKHR)OFFSCREEN_SWAPCHAIN_VKSURFACE_MAGIC;
+		return VK_SUCCESS;
+	}else
+	{
+		return vulkan->vkCreateXcbSurfaceKHR(instance, pCreateInfo, pAllocator, pSurface);
+	}
 }
 
 
 VKAPI_ATTR VkBool32 VKAPI_CALL vkGetPhysicalDeviceXcbPresentationSupportKHR(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, xcb_connection_t* connection, xcb_visualid_t visual_id)
 {
 	prompt_hook();
-	return vulkan->vkGetPhysicalDeviceXcbPresentationSupportKHR(physicalDevice, queueFamilyIndex, connection, visual_id);
+
+	if(use_offscreen_swapchain)
+	{
+		return VK_TRUE;
+	}else
+	{
+		return vulkan->vkGetPhysicalDeviceXcbPresentationSupportKHR(physicalDevice, queueFamilyIndex, connection, visual_id);
+	}
 }
 #endif
 
@@ -228,35 +258,102 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vkGetPhysicalDeviceWin32PresentationSupportKHR(Vk
 VKAPI_ATTR void VKAPI_CALL vkDestroySurfaceKHR(VkInstance  instance, VkSurfaceKHR surface, const VkAllocationCallbacks* pAllocator)
 {
 	prompt_hook();
-	vulkan->vkDestroySurfaceKHR(instance, surface, pAllocator);
+	if(use_offscreen_swapchain)
+	{
+		if(surface != (VkSurfaceKHR)OFFSCREEN_SWAPCHAIN_VKSURFACE_MAGIC)
+			fprintf(stderr, "surface (%p) != OFFSCREEN_SWAPCHAIN_VKSURFACE_MAGIC", surface);
+	}else
+	{
+		vulkan->vkDestroySurfaceKHR(instance, surface, pAllocator);
+	}
 }
 
 
 VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, VkSurfaceKHR surface, VkBool32* pSupported)
 {
 	prompt_hook();
-	return vulkan->vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, surface, pSupported);
+
+	if(use_offscreen_swapchain)
+	{
+		*pSupported = VK_TRUE;
+		return VK_SUCCESS;
+	}else
+	{
+		return vulkan->vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, surface, pSupported);
+	}
 }
 
 
 VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR* pSurfaceCapabilities)
 {
 	prompt_hook();
-	return vulkan->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, pSurfaceCapabilities);
+	if(use_offscreen_swapchain)
+	{
+		*pSurfaceCapabilities = (VkSurfaceCapabilitiesKHR)
+		{
+			.supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		};
+		return VK_SUCCESS;
+	}else
+	{
+		return vulkan->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, pSurfaceCapabilities);
+	}
 }
 
 
 VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, uint32_t* pSurfaceFormatCount, VkSurfaceFormatKHR* pSurfaceFormats)
 {
 	prompt_hook();
-	return vulkan->vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, pSurfaceFormatCount, pSurfaceFormats);
+
+	if(use_offscreen_swapchain)
+	{
+		VkSurfaceFormatKHR formats[] =
+		{
+			{
+				.format = VK_FORMAT_R8G8B8A8_UNORM,
+				.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+			},
+			{
+				.format = VK_FORMAT_B8G8R8A8_UNORM,
+				.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+			},
+			{
+				.format = VK_FORMAT_R8G8B8A8_SRGB,
+				.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+			},
+			{
+				.format = VK_FORMAT_B8G8R8A8_SRGB,
+				.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+			},
+		};
+
+		*pSurfaceFormatCount = 4;
+		if(pSurfaceFormats)
+			memcpy(pSurfaceFormats, formats, sizeof(formats));
+		return VK_SUCCESS;
+	}else
+	{
+		return vulkan->vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, pSurfaceFormatCount, pSurfaceFormats);
+	}
 }
 
 
 VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, uint32_t* pPresentModeCount, VkPresentModeKHR* pPresentModes)
 {
 	prompt_hook();
-	return vulkan->vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, pPresentModeCount, pPresentModes);
+
+	if(use_offscreen_swapchain)
+	{
+		*pPresentModeCount = 1;
+
+		if(pPresentModes)
+			*pPresentModes = VK_PRESENT_MODE_FIFO_KHR;
+
+		return VK_SUCCESS;
+	}else
+	{
+		return vulkan->vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, pPresentModeCount, pPresentModes);
+	}
 }
 
 
@@ -265,8 +362,14 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwa
 	prompt_hook();
 
 	capture_context_init_image(capture, pCreateInfo->imageFormat, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
-
-	return vulkan->vkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
+	if(use_offscreen_swapchain)
+	{
+		*pSwapchain = (VkSwapchainKHR)offscreen_swapchain_create(capture_context_get_physical_device(capture), device, pCreateInfo->minImageCount, VK_FORMAT_R8G8B8A8_UNORM, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
+		return VK_SUCCESS;
+	}else
+	{
+		return vulkan->vkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
+	}
 }
 
 
@@ -276,7 +379,16 @@ VKAPI_ATTR void VKAPI_CALL vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR
 
 	capture_context_destroy_image(capture);
 
-	vulkan->vkDestroySwapchainKHR(device, swapchain, pAllocator);
+	if(use_offscreen_swapchain)
+	{
+		offscreen_swapchain_destroy(device, (offscreen_swapchain*)swapchain);
+	}else
+	{
+		vulkan->vkDestroySwapchainKHR(device, swapchain, pAllocator);
+	}
+
+	memset(swapchain_images, 0, sizeof(VkImage) * nr_swapchain_images);
+	nr_swapchain_images = 0;
 }
 
 
@@ -286,7 +398,13 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetSwapchainImagesKHR(VkDevice device, VkSwapch
 
 	prompt_hook();
 
-	result = vulkan->vkGetSwapchainImagesKHR(device, swapchain, pSwapchainImageCount, pSwapchainImages);
+	if(use_offscreen_swapchain)
+	{
+		offscreen_swapchain_get_images((offscreen_swapchain*)swapchain, pSwapchainImageCount, pSwapchainImages);
+	}else
+	{
+		result = vulkan->vkGetSwapchainImagesKHR(device, swapchain, pSwapchainImageCount, pSwapchainImages);
+	}
 
 	if(pSwapchainImages)
 	{
@@ -309,7 +427,13 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchai
 	++counter;
 	counter %= SKIP_MESSAGE_TIMES;
 
-	result = vulkan->vkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
+	if(use_offscreen_swapchain)
+	{
+		*pImageIndex = offscreen_swapchain_acquire_next_image((offscreen_swapchain*)swapchain);
+	}else
+	{
+		result = vulkan->vkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
+	}
 
 	swapchain_index = *pImageIndex;
 
@@ -328,7 +452,27 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentI
 	counter %= SKIP_MESSAGE_TIMES;
 
 	capture_context_capture(capture, swapchain_images[swapchain_index]);
-	capture_context_read_pixles(capture, NULL);
 
-	return vulkan->vkQueuePresentKHR(queue, pPresentInfo);
+	if(use_offscreen_swapchain)
+	{
+		offscreen_swapchain_present((offscreen_swapchain*)*pPresentInfo->pSwapchains);
+		return VK_SUCCESS;
+	}else
+	{
+		return vulkan->vkQueuePresentKHR(queue, pPresentInfo);
+	}
+}
+
+
+VKAPI_ATTR VkResult VKAPI_CALL vkQueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
+{
+	VkSubmitInfo info = *pSubmits;
+
+	if(use_offscreen_swapchain)
+	{
+		info.waitSemaphoreCount = 0;
+		info.signalSemaphoreCount = 0;
+	}
+
+	return vulkan->vkQueueSubmit(queue, submitCount, &info, fence);
 }

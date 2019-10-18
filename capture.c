@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vulkan/vulkan.h>
-
+#include "vkutils.h"
 
 struct capture_context
 {
@@ -71,44 +71,6 @@ void capture_context_deinit(struct capture_context* capture_context)
 }
 
 
-static VkDeviceMemory vkimage_allocate_memory(VkPhysicalDevice phydevice, VkDevice device, VkImage image, VkMemoryPropertyFlags flags)
-{
-	int i, memtype;
-	VkDeviceMemory	memory;
-
-	VkMemoryRequirements			memreq;
-	VkPhysicalDeviceMemoryProperties	memprop;
-
-	vkGetImageMemoryRequirements(device, image, &memreq);
-	vkGetPhysicalDeviceMemoryProperties(phydevice, &memprop);
-
-	for(i = 0;i < memprop.memoryTypeCount;i++)
-	{
-		if(memreq.memoryTypeBits & (1 << i) && (memprop.memoryTypes[i].propertyFlags & flags) == flags)
-		{
-			memtype = i;
-			break;
-		}
-	}
-
-	vkAllocateMemory
-	(
-		device,
-		&(VkMemoryAllocateInfo)
-		{
-			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			.allocationSize = memreq.size,
-			.memoryTypeIndex = memtype,
-		},
-		NULL, &memory
-	);
-
-	vkBindImageMemory(device, image, memory, 0);
-
-	return memory;
-}
-
-
 void capture_context_init_image(struct capture_context* capture_context, VkFormat format, int width, int height)
 {
 	vkCreateImage
@@ -137,7 +99,6 @@ void capture_context_init_image(struct capture_context* capture_context, VkForma
 	capture_context->image_size = width * height * 4;
 
 	capture_context->memory = vkimage_allocate_memory(capture_context->phydevice, capture_context->device, capture_context->image, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
 }
 
 
@@ -287,4 +248,10 @@ void capture_context_unmap_image(struct capture_context* capture_context)
 VkImage	capture_context_get_vkimage(struct capture_context* capture_context)
 {
 	return capture_context->image;
+}
+
+
+VkPhysicalDevice capture_context_get_physical_device(struct capture_context* capture_context)
+{
+	return capture_context->phydevice;
 }
