@@ -6,7 +6,7 @@
 #include "vkutils.h"
 
 #ifndef SWAPINTERVAL_USEC
-#define SWAPINTERVAL_USEC	(16666)
+#define SWAPINTERVAL_USEC	(0)
 #endif
 
 struct offscreen_swapchain

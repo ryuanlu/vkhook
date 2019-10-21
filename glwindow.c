@@ -1,16 +1,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #define EGL_EGLEXT_PROTOTYPES
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
 #include <GL/glext.h>
+
 #include <vulkan/vulkan.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <pthread.h>
+
+#include "gl_context.h"
 
 GLAPI void APIENTRY glDrawVkImageNV (GLuint64 vkImage, GLuint sampler, GLfloat x0, GLfloat y0, GLfloat x1, GLfloat y1, GLfloat z, GLfloat s0, GLfloat t0, GLfloat s1, GLfloat t1);
 
@@ -18,24 +23,21 @@ GLAPI void APIENTRY glDrawVkImageNV (GLuint64 vkImage, GLuint sampler, GLfloat x
 
 struct glwindow
 {
-	Display*		xdisplay;
-	Window			window;
-	EGLDisplay		egldisplay;
-	EGLSurface		eglsurface;
-	EGLConfig		eglconfig;
-	EGLContext		eglcontext;
+	Display*	xdisplay;
+	Window		window;
 
-	GLuint			texture;
-	GLuint			fbo;
-	int 			width;
-	int			height;
+	void*		context;
+
+	GLuint		texture;
+	GLuint		fbo;
+	int 		width;
+	int		height;
 };
 
-
+struct gl_context gl = {0};
 
 struct glwindow* glwindow_create(void)
 {
-	int nr_configs;
 	XTextProperty title;
 	struct glwindow* glwindow = NULL;
 
@@ -64,48 +66,24 @@ struct glwindow* glwindow_create(void)
 	XSelectInput(glwindow->xdisplay, glwindow->window, ExposureMask | KeyPressMask | StructureNotifyMask);
 	XMapWindow(glwindow->xdisplay, glwindow->window);
 
-	glwindow->egldisplay = eglGetPlatformDisplay(EGL_PLATFORM_X11_EXT, glwindow->xdisplay, NULL);
-	eglInitialize(glwindow->egldisplay, NULL, NULL);
-	eglBindAPI(EGL_OPENGL_API);
+#ifdef USE_EGL
+	gl_context_set_egl(&gl);
+#else
+	gl_context_set_glx(&gl);
+#endif
 
-	eglChooseConfig
-	(
-		glwindow->egldisplay,
-		(EGLint[])
-		{
-			EGL_RENDERABLE_TYPE,	EGL_OPENGL_BIT,
-			EGL_SURFACE_TYPE,	EGL_WINDOW_BIT,
-			EGL_NONE,
-		},
-		&glwindow->eglconfig, 1, &nr_configs
-	);
+	glwindow->context = gl.create_context(glwindow->xdisplay, glwindow->window);
 
-	glwindow->eglsurface = eglCreatePlatformWindowSurface(glwindow->egldisplay, glwindow->eglconfig, &glwindow->window, NULL);
+	gl.make_current(glwindow->context);
+	gl.make_no_current(glwindow->context);
 
-	glwindow->eglcontext = eglCreateContext
-	(
-		glwindow->egldisplay, glwindow->eglconfig, EGL_NO_CONTEXT,
-		(EGLint[])
-		{
-			EGL_CONTEXT_MAJOR_VERSION_KHR, 4,
-			EGL_CONTEXT_MINOR_VERSION_KHR, 5,
-			EGL_NONE
-		}
-	);
-
-	eglMakeCurrent(glwindow->egldisplay, glwindow->eglsurface, glwindow->eglsurface, glwindow->eglcontext);
-
-	eglMakeCurrent(glwindow->egldisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	return glwindow;
 }
 
 
 void glwindow_destroy(struct glwindow* glwindow)
 {
-	eglMakeCurrent(glwindow->egldisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-	eglDestroyContext(glwindow->egldisplay, glwindow->eglconfig);
-	eglDestroySurface(glwindow->egldisplay, glwindow->eglsurface);
-	eglTerminate(glwindow->egldisplay);
+	gl.destroy_context(glwindow->context);
 	XUnmapWindow(glwindow->xdisplay, glwindow->window);
 	XDestroyWindow(glwindow->xdisplay, glwindow->window);
 	XCloseDisplay(glwindow->xdisplay);
@@ -115,7 +93,7 @@ void glwindow_destroy(struct glwindow* glwindow)
 
 void glwindow_set_fbo_size(struct glwindow* glwindow, int width, int height)
 {
-	eglMakeCurrent(glwindow->egldisplay, glwindow->eglsurface, glwindow->eglsurface, glwindow->eglcontext);
+	gl.make_current(glwindow->context);
 
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
@@ -141,9 +119,7 @@ void glwindow_set_fbo_size(struct glwindow* glwindow, int width, int height)
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, glwindow->fbo);
 
-
-	eglMakeCurrent(glwindow->egldisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-
+	gl.make_no_current(glwindow->context);
 }
 
 
@@ -154,7 +130,7 @@ void glwindow_blit(struct glwindow* glwindow, const char* pixels)
 #else
 	GLuint format = GL_BGRA;
 #endif
-	eglMakeCurrent(glwindow->egldisplay, glwindow->eglsurface, glwindow->eglsurface, glwindow->eglcontext);
+	gl.make_current(glwindow->context);
 
 	glBindTexture(GL_TEXTURE_2D, glwindow->texture);
 	if(pixels)
@@ -170,19 +146,19 @@ void glwindow_blit(struct glwindow* glwindow, const char* pixels)
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
-	eglSwapBuffers(glwindow->egldisplay, glwindow->eglsurface);
+	gl.swap_buffers(glwindow->context);
 
-	eglMakeCurrent(glwindow->egldisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	gl.make_no_current(glwindow->context);
 }
 
 
 void glwindow_vkimage_blit(struct glwindow* glwindow, VkImage image)
 {
-	eglMakeCurrent(glwindow->egldisplay, glwindow->eglsurface, glwindow->eglsurface, glwindow->eglcontext);
+	gl.make_current(glwindow->context);
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	glDrawVkImageNV((GLuint64)image, 0, 0, 0, glwindow->width, glwindow->height, 0, 0, 0, 1, 1);
 
-	eglSwapBuffers(glwindow->egldisplay, glwindow->eglsurface);
-	eglMakeCurrent(glwindow->egldisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	gl.swap_buffers(glwindow->context);
+	gl.make_no_current(glwindow->context);
 }
