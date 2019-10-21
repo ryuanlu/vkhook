@@ -16,6 +16,13 @@ struct glx_context
 
 static struct glx_context* glx_context_create(Display* display, Window window)
 {
+	int fb_attr[] =
+	{
+		GLX_RENDER_TYPE, GLX_RGBA_BIT,
+		GLX_DOUBLEBUFFER, 1,
+		0,
+	};
+
 	int version_attr[] =
 	{
 		GLX_CONTEXT_MAJOR_VERSION_ARB, 3,
@@ -29,7 +36,7 @@ static struct glx_context* glx_context_create(Display* display, Window window)
 
 	glx = calloc(1, sizeof(struct glx_context));
 
-	fbconfig = glXChooseFBConfig(display, DefaultScreen(display), 0, &nitems);
+	fbconfig = glXChooseFBConfig(display, DefaultScreen(display), fb_attr, &nitems);
 	glx->glxcontext = glXCreateContextAttribsARB(display, *fbconfig, 0, 1, version_attr);
 
 	glx->display = display;
