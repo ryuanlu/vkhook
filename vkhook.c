@@ -21,6 +21,14 @@
 #define LIBVULKAN_SONAME	"libvulkan.so.1"
 #define SKIP_MESSAGE_TIMES	(60)
 
+#ifndef CONFIG_USE_OFFSCREEN_SWAPCHAIN
+#define CONFIG_USE_OFFSCREEN_SWAPCHAIN	(0)
+#endif
+
+#ifndef CONFIG_USE_XPUTIMAGE
+#define CONFIG_USE_XPUTIMAGE	(0)
+#endif
+
 #define prompt(type)		fprintf(stderr, "%s%s\n", type, __FUNCTION__)
 #define prompt_type(type)	prompt("["#type"] ")
 #define prompt_hook()		prompt_type(HOOK)
@@ -67,6 +75,7 @@ struct libvulkan_functions
 };
 
 static int use_offscreen_swapchain = CONFIG_USE_OFFSCREEN_SWAPCHAIN;
+static int use_xputimage = CONFIG_USE_XPUTIMAGE;
 
 static struct libvulkan_functions* vulkan = NULL;
 static capture_context* capture = NULL;
@@ -449,25 +458,33 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchai
 
 VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
-	const char* pixels = NULL;
+	char* pixels = NULL;
 	static int counter = 0;
 
 	if(counter == 0)
 		prompt_hook();
 
-	++counter;
-	counter %= SKIP_MESSAGE_TIMES;
-
 	capture_context_capture(capture, swapchain_images[swapchain_index]);
 	// capture_context_read_pixles(capture, NULL);
 
-#ifndef USE_GL_DRAW_VKIMAGE_NV
+#ifndef CONFIG_USE_GL_DRAW_VKIMAGE_NV
 	pixels = capture_context_map_image(capture);
-	glwindow_blit(gl, pixels);
+
+	if(counter == 0)
+		fprintf(stderr, "[HOOK] %s\n", use_xputimage ? "glwindow_xputimage" : "glwindow_blit");
+
+	if(use_xputimage)
+		glwindow_xputimage(gl, pixels);
+	else
+		glwindow_blit(gl, pixels);
+
 	capture_context_unmap_image(capture);
 #else
 	glwindow_vkimage_blit(gl, capture_context_get_vkimage(capture));
 #endif
+
+	++counter;
+	counter %= SKIP_MESSAGE_TIMES;
 
 	if(use_offscreen_swapchain)
 	{

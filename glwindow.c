@@ -162,3 +162,15 @@ void glwindow_vkimage_blit(struct glwindow* glwindow, VkImage image)
 	gl.swap_buffers(glwindow->context);
 	gl.make_no_current(glwindow->context);
 }
+
+
+void glwindow_xputimage(struct glwindow* glwindow, char* pixels)
+{
+	XImage* image = NULL;
+	GC gc;
+	image = XCreateImage(glwindow->xdisplay, DefaultVisual(glwindow->xdisplay, 0), 24, ZPixmap, 0, pixels, glwindow->width, glwindow->height, 32, 0);
+	gc = XCreateGC(glwindow->xdisplay, glwindow->window, 0, NULL);
+	XPutImage(glwindow->xdisplay, glwindow->window, gc, image, 0, 0, 0, 0, glwindow->width, glwindow->height);
+	XFreeGC(glwindow->xdisplay, gc);
+	free(image);
+}
