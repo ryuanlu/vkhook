@@ -28,6 +28,11 @@ VkDeviceMemory vkimage_allocate_memory(VkPhysicalDevice phydevice, VkDevice devi
 			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 			.allocationSize = memreq.size,
 			.memoryTypeIndex = memtype,
+			.pNext = &(VkExportMemoryAllocateInfo)
+			{
+				.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
+				.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+			},
 		},
 		NULL, &memory
 	);

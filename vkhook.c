@@ -72,6 +72,7 @@ struct libvulkan_functions
 	PFN_vkQueuePresentKHR		vkQueuePresentKHR;
 	PFN_vkQueueSubmit		vkQueueSubmit;
 
+	PFN_vkGetMemoryFdKHR		vkGetMemoryFdKHR;
 };
 
 static int use_offscreen_swapchain = CONFIG_USE_OFFSCREEN_SWAPCHAIN;
@@ -147,6 +148,10 @@ void libvulkan_functions_deinit(struct libvulkan_functions* vulkan)
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance)
 {
+	VkResult result = VK_SUCCESS;
+	VkInstanceCreateInfo info = {0};
+	const char** extensions = NULL;
+	char* original_display = getenv("DISPLAY");
 	char* env_vhook_use_offscreen_swapchain = getenv("VKHOOK_USE_OFFSCREEN_SWAPCHAIN");
 
 	use_offscreen_swapchain = env_vhook_use_offscreen_swapchain ? !strcmp("1", env_vhook_use_offscreen_swapchain) : use_offscreen_swapchain;
@@ -161,10 +166,28 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCre
 
 	if(use_offscreen_swapchain)
 	{
-		unsetenv("DISPLAY");
+		// unsetenv("DISPLAY");
+		setenv("DISPLAY", ":0", 1);
 	}
 
-	return vulkan->vkCreateInstance(pCreateInfo, pAllocator, pInstance);
+	memcpy(&info, pCreateInfo, sizeof(VkInstanceCreateInfo));
+	extensions = calloc(info.enabledExtensionCount + 1, sizeof(char*));
+	memcpy(&extensions[0], info.ppEnabledExtensionNames, sizeof(char*) * info.enabledExtensionCount);
+
+	info.enabledExtensionCount += 1;
+	extensions[info.enabledExtensionCount - 1] = "VK_KHR_external_memory_capabilities";
+	info.ppEnabledExtensionNames = extensions;
+
+	result = vulkan->vkCreateInstance(pCreateInfo, pAllocator, pInstance);
+
+	free(extensions);
+
+	if(use_offscreen_swapchain)
+	{
+		setenv("DISPLAY", original_display, 1);
+	}
+
+	return result;
 }
 
 
@@ -182,10 +205,26 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAlloca
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDevice* pDevice)
 {
+	VkDeviceCreateInfo info;
+	const char** extensions = NULL;
 	VkResult result = VK_SUCCESS;
 
 	prompt_hook();
+
+	memcpy(&info, pCreateInfo, sizeof(VkDeviceCreateInfo));
+	extensions = calloc(info.enabledExtensionCount + 2, sizeof(char*));
+	memcpy(&extensions[0], info.ppEnabledExtensionNames, sizeof(char*) * info.enabledExtensionCount);
+
+	info.enabledExtensionCount += 2;
+	extensions[info.enabledExtensionCount - 2] = " VK_KHR_external_memory";
+	extensions[info.enabledExtensionCount - 1] = " VK_KHR_external_memory_fd";
+	info.ppEnabledExtensionNames = extensions;
+
 	result = vulkan->vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+
+	free(extensions);
+
+	vulkan->vkGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(*pDevice, "vkGetMemoryFdKHR");
 
 	if(!capture)
 		capture = capture_context_init(physicalDevice, *pDevice, pCreateInfo->pQueueCreateInfos->queueFamilyIndex);
@@ -513,4 +552,18 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueueSubmit(VkQueue queue, uint32_t submitCount
 	}
 
 	return vulkan->vkQueueSubmit(queue, submitCount, &info, fence);
+}
+
+
+VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryFdKHR(VkDevice device, const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd)
+{
+	if(vulkan->vkGetMemoryFdKHR)
+	{
+		return vulkan->vkGetMemoryFdKHR(device, pGetFdInfo, pFd);
+	}else
+	{
+		fprintf(stderr, "vkGetMemoryFdKHR == %p\n", vulkan->vkGetMemoryFdKHR);
+		*pFd = -1;
+		return VK_ERROR_FEATURE_NOT_PRESENT;
+	}
 }

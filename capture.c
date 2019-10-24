@@ -19,6 +19,7 @@ struct capture_context
 	VkImage		image;
 	VkFormat	format;
 	VkDeviceMemory	memory;
+	int		fd;
 
 };
 
@@ -99,6 +100,20 @@ void capture_context_init_image(struct capture_context* capture_context, VkForma
 	capture_context->image_size = width * height * 4;
 
 	capture_context->memory = vkimage_allocate_memory(capture_context->phydevice, capture_context->device, capture_context->image, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	vkGetMemoryFdKHR
+	(
+		capture_context->device,
+		&(VkMemoryGetFdInfoKHR)
+		{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
+			.memory = capture_context->memory,
+			.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+		},
+		&capture_context->fd
+	);
+
+	fprintf(stderr, "capture_context->fd = %d\n", capture_context->fd);
 }
 
 
