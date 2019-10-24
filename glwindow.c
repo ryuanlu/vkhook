@@ -32,6 +32,10 @@ struct glwindow
 	GLuint		fbo;
 	int 		width;
 	int		height;
+
+	GC		gc;
+	XImage*		ximage;
+	char*		buffer;
 };
 
 struct gl_context gl = {0};
@@ -65,6 +69,7 @@ struct glwindow* glwindow_create(void)
 
 	XSelectInput(glwindow->xdisplay, glwindow->window, ExposureMask | KeyPressMask | StructureNotifyMask);
 	XMapWindow(glwindow->xdisplay, glwindow->window);
+	glwindow->gc = XCreateGC(glwindow->xdisplay, glwindow->window, 0, NULL);
 
 #ifdef USE_EGL
 	gl_context_set_egl(&gl);
@@ -84,6 +89,7 @@ struct glwindow* glwindow_create(void)
 void glwindow_destroy(struct glwindow* glwindow)
 {
 	gl.destroy_context(glwindow->context);
+	XFreeGC(glwindow->xdisplay, glwindow->gc);
 	XUnmapWindow(glwindow->xdisplay, glwindow->window);
 	XDestroyWindow(glwindow->xdisplay, glwindow->window);
 	XCloseDisplay(glwindow->xdisplay);
@@ -164,13 +170,20 @@ void glwindow_vkimage_blit(struct glwindow* glwindow, VkImage image)
 }
 
 
-void glwindow_xputimage(struct glwindow* glwindow, char* pixels)
+void glwindow_set_ximage_size(struct glwindow* glwindow, int width, int height)
 {
-	XImage* image = NULL;
-	GC gc;
-	image = XCreateImage(glwindow->xdisplay, DefaultVisual(glwindow->xdisplay, 0), 24, ZPixmap, 0, pixels, glwindow->width, glwindow->height, 32, 0);
-	gc = XCreateGC(glwindow->xdisplay, glwindow->window, 0, NULL);
-	XPutImage(glwindow->xdisplay, glwindow->window, gc, image, 0, 0, 0, 0, glwindow->width, glwindow->height);
-	XFreeGC(glwindow->xdisplay, gc);
-	free(image);
+	if(glwindow->ximage)
+		XDestroyImage(glwindow->ximage);
+
+	glwindow->width = width;
+	glwindow->height = height;
+	glwindow->buffer = malloc(width * height * 4);
+	glwindow->ximage = XCreateImage(glwindow->xdisplay, DefaultVisual(glwindow->xdisplay, 0), 24, ZPixmap, 0, glwindow->buffer, glwindow->width, glwindow->height, 32, 0);
+}
+
+
+void glwindow_xputimage(struct glwindow* glwindow, const char* pixels)
+{
+	memcpy(glwindow->buffer, pixels, glwindow->width * glwindow->height * 4);
+	XPutImage(glwindow->xdisplay, glwindow->window, glwindow->gc, glwindow->ximage, 0, 0, 0, 0, glwindow->width, glwindow->height);
 }

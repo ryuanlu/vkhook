@@ -375,7 +375,12 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwa
 	prompt_hook();
 
 	capture_context_init_image(capture, pCreateInfo->imageFormat, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
-	glwindow_set_fbo_size(gl, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
+
+	if(use_xputimage)
+		glwindow_set_ximage_size(gl, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
+	else
+		glwindow_set_fbo_size(gl, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
+
 
 	if(use_offscreen_swapchain)
 	{
@@ -458,7 +463,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchai
 
 VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
-	char* pixels = NULL;
+	const char* pixels = NULL;
 	static int counter = 0;
 
 	if(counter == 0)
