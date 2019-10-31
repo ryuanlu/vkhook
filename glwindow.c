@@ -15,6 +15,10 @@
 #include <X11/Xatom.h>
 #include <pthread.h>
 
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <X11/extensions/XShm.h>
+
 #include "gl_context.h"
 
 GLAPI void APIENTRY glDrawVkImageNV (GLuint64 vkImage, GLuint sampler, GLfloat x0, GLfloat y0, GLfloat x1, GLfloat y1, GLfloat z, GLfloat s0, GLfloat t0, GLfloat s1, GLfloat t1);
@@ -36,6 +40,7 @@ struct glwindow
 	GC		gc;
 	XImage*		ximage;
 	char*		buffer;
+	XShmSegmentInfo shminfo;
 };
 
 struct gl_context gl = {0};
@@ -173,7 +178,10 @@ void glwindow_vkimage_blit(struct glwindow* glwindow, VkImage image)
 void glwindow_set_ximage_size(struct glwindow* glwindow, int width, int height)
 {
 	if(glwindow->ximage)
+	{
 		XDestroyImage(glwindow->ximage);
+		glwindow->ximage = NULL;
+	}
 
 	glwindow->width = width;
 	glwindow->height = height;
@@ -186,4 +194,34 @@ void glwindow_xputimage(struct glwindow* glwindow, const char* pixels)
 {
 	memcpy(glwindow->buffer, pixels, glwindow->width * glwindow->height * 4);
 	XPutImage(glwindow->xdisplay, glwindow->window, glwindow->gc, glwindow->ximage, 0, 0, 0, 0, glwindow->width, glwindow->height);
+}
+
+
+void glwindow_set_xshm_size(struct glwindow* glwindow, int width, int height)
+{
+	if(glwindow->shminfo.shmid)
+	{
+		XShmDetach(glwindow->xdisplay, &glwindow->shminfo);
+		XDestroyImage(glwindow->ximage);
+		glwindow->ximage = NULL;
+		glwindow->shminfo.shmid = 0;
+	}
+
+	glwindow->width = width;
+	glwindow->height = height;
+	glwindow->ximage = XShmCreateImage(glwindow->xdisplay, DefaultVisual(glwindow->xdisplay, 0), 24, ZPixmap, NULL, &glwindow->shminfo, glwindow->width, glwindow->height);
+
+	glwindow->shminfo.shmid = shmget(IPC_PRIVATE, glwindow->ximage->bytes_per_line * glwindow->ximage->height, IPC_CREAT|0777);
+	glwindow->shminfo.shmaddr = glwindow->ximage->data = shmat(glwindow->shminfo.shmid, 0, 0);
+	glwindow->shminfo.readOnly = False;
+
+	XShmAttach(glwindow->xdisplay, &glwindow->shminfo);
+}
+
+
+void glwindow_xshmputimage(struct glwindow* glwindow, const char* pixels)
+{
+	memcpy(glwindow->ximage->data, pixels, glwindow->width * glwindow->height * 4);
+	XShmPutImage(glwindow->xdisplay, glwindow->window, glwindow->gc, glwindow->ximage, 0, 0, 0, 0, glwindow->width, glwindow->height, 0);
+	XFlush(glwindow->xdisplay);
 }

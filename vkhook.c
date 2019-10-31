@@ -29,6 +29,10 @@
 #define CONFIG_USE_XPUTIMAGE	(0)
 #endif
 
+#ifndef CONFIG_USE_XSHMPUTIMAGE
+#define CONFIG_USE_XSHMPUTIMAGE	(0)
+#endif
+
 #define prompt(type)		fprintf(stderr, "%s%s\n", type, __FUNCTION__)
 #define prompt_type(type)	prompt("["#type"] ")
 #define prompt_hook()		prompt_type(HOOK)
@@ -77,6 +81,7 @@ struct libvulkan_functions
 
 static int use_offscreen_swapchain = CONFIG_USE_OFFSCREEN_SWAPCHAIN;
 static int use_xputimage = CONFIG_USE_XPUTIMAGE;
+static int use_xshmputimage = CONFIG_USE_XSHMPUTIMAGE;
 
 static struct libvulkan_functions* vulkan = NULL;
 static capture_context* capture = NULL;
@@ -417,6 +422,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwa
 
 	if(use_xputimage)
 		glwindow_set_ximage_size(gl, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
+	else if(use_xshmputimage)
+		glwindow_set_xshm_size(gl, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
 	else
 		glwindow_set_fbo_size(gl, pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height);
 
@@ -514,11 +521,10 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentI
 #ifndef CONFIG_USE_GL_DRAW_VKIMAGE_NV
 	pixels = capture_context_map_image(capture);
 
-	if(counter == 0)
-		fprintf(stderr, "[HOOK] %s\n", use_xputimage ? "glwindow_xputimage" : "glwindow_blit");
-
 	if(use_xputimage)
 		glwindow_xputimage(gl, pixels);
+	else if(use_xshmputimage)
+		glwindow_xshmputimage(gl, pixels);
 	else
 		glwindow_blit(gl, pixels);
 

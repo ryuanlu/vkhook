@@ -7,12 +7,16 @@ typedef struct glwindow	glwindow;
 
 glwindow*	glwindow_create		(void);
 void		glwindow_destroy	(glwindow* glwindow);
+
 void		glwindow_set_fbo_size	(glwindow* glwindow, int width, int height);
 void		glwindow_blit		(glwindow* glwindow, const char* pixels);
 void		glwindow_vkimage_blit	(glwindow* glwindow, VkImage image);
-void		glwindow_set_ximage_size(struct glwindow* glwindow, int width, int height);
+
+void		glwindow_set_ximage_size(glwindow* glwindow, int width, int height);
 void		glwindow_xputimage	(glwindow* glwindow, const char* pixels);
 
+void		glwindow_set_xshm_size	(glwindow* glwindow, int width, int height);
+void		glwindow_xshmputimage	(glwindow* glwindow, const char* pixels);
 
 
 
